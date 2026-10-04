@@ -98,13 +98,6 @@ const validateUser = [
     .matches(/^[a-zA-Z0-9]+$/)
     .withMessage('Username must contain only letters and numbers')
     .custom((value) => {
-      const lowercaseValue = value.toLowerCase();
-      if (inappropriateWords.some((word) => lowercaseValue.includes(word))) {
-        throw new Error('Username contains inappropriate language');
-      }
-      return true;
-    })
-    .custom((value) => {
       const inappropriateWords = [
         'nlgga',
         'nigga',
