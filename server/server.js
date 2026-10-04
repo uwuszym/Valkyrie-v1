@@ -113,27 +113,32 @@ app.use((req, res, next) => {
 let isConnected = false;
 
 async function connectToDatabase() {
-  if (!isConnected) {
-    try {
-      console.log('Attempting to connect to MongoDB...');
-      await connectDB(MONGODB_URI);
-      isConnected = true;
-      console.log('Connected to MongoDB');
-    } catch (error) {
-      console.error('Error connecting to database:', error);
-      setTimeout(connectToDatabase, 5000);
-    }
+  if (isConnected) return;
+
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is not configured');
   }
+
+  console.log('Attempting to connect to MongoDB...');
+  await connectDB(MONGODB_URI);
+  isConnected = true;
+  console.log('Connected to MongoDB');
 }
 
 app.use(async (req, res, next) => {
+  // Static pages/assets do not need MongoDB.
+  if (!req.path.startsWith('/api')) {
+    return next();
+  }
+
   try {
     await connectToDatabase();
     next();
   } catch (error) {
-    res.status(500).json({
-      error: 'Internal Server Error',
-      details: 'Database connection failed',
+    console.error('Database unavailable:', error.message);
+    res.status(503).json({
+      error: 'Database unavailable',
+      details: 'Set MONGODB_URI in Vercel Environment Variables.',
     });
   }
 });
@@ -144,10 +149,12 @@ app.use(
     secret: process.env.SESSION_SECRET || 'your-secret-key',
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({
-      mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost/my-app',
-      ttl: 24 * 60 * 60, // 1 day
-    }),
+    store: MONGODB_URI
+      ? MongoStore.create({
+          mongoUrl: MONGODB_URI,
+          ttl: 24 * 60 * 60, // 1 day
+        })
+      : undefined,
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
