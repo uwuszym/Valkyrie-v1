@@ -7,6 +7,6 @@
     }
   ],
   "env": {
-    "MAINTENANCE_MODE": "false"
+    "MAINTENANCE_MODE": "true"
   }
 }
