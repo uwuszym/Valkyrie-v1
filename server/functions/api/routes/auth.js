@@ -37,8 +37,8 @@ function authenticateToken(req, res, next) {
         console.error('Token verification error:', err);
         return res.sendStatus(403);
       }
-      console.log('Decoded user:', user);
-      req.user = { userId: user.userId }; // Ensure userId is a string
+      console.log('Decoded user:', decoded);
+      req.user = { userId: decoded.userId }; // Ensure userId is a string
       next();
     }
   );
