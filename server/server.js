@@ -303,17 +303,21 @@ app.use((req, res, next) => {
 });
 
 // Call this function after the server starts
-app.listen(port, '0.0.0.0', async () => {
-  console.log(`Server running at http://0.0.0.0:${port}`);
-  console.log('Environment:', process.env.NODE_ENV);
-  try {
-    await connectToDatabase();
-    if (process.env.NODE_ENV !== 'production') {
-      await resetUserIdsIfNeeded();
+if (require.main === module) {
+  app.listen(port, '0.0.0.0', async () => {
+    console.log(`Server running at http://0.0.0.0:${port}`);
+    console.log('Environment:', process.env.NODE_ENV);
+
+    try {
+      await connectToDatabase();
+
+      if (process.env.NODE_ENV !== 'production') {
+        await resetUserIdsIfNeeded();
+      }
+    } catch (error) {
+      console.error('Startup error:', error);
     }
-  } catch (error) {
-    console.error('Startup error:', error);
-  }
-});
+  });
+}
 
 module.exports = app;
