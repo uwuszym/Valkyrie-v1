@@ -39,6 +39,9 @@ const MONGODB_URI = process.env.MONGODB_URI;
 const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === 'true';
 const SECRET_KEY = process.env.MAINTENANCE_SECRET_KEY || 'default_secret_key';
 
+// Trust Vercel's reverse proxy so express-rate-limit can safely use X-Forwarded-For.
+app.set('trust proxy', 1);
+
 // Use  middlewares
 app.use(cookieParser());
 app.use(express.json());
