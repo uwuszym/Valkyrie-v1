@@ -359,25 +359,13 @@ router.post(
         password: hashedPassword,
         signupDate: moment().tz('America/New_York').toDate(),
         signupIp: clientIp,
-        verificationToken,
+        verificationToken: undefined,
+        isVerified: true,
       });
 
       await user.save();
 
-      // send email verification link
-      const verificationLink = `${process.env.BASE_URL}/api/auth/verify-email/${verificationToken}`;
-
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: 'Email Verification',
-        html: `
-            <p>Hello ${username},</p>
-            <p>Thank you for registering an account on our website. Please click the link below to verify your email address:</p>
-            <p><a href="${verificationLink}">${verificationLink}</a></p>
-            <p>If you did not register an account, please ignore this email.</p>
-        `,
-      });
+      // Email verification is disabled; new accounts are verified automatically.
 
       res.status(201).json({
         message:
