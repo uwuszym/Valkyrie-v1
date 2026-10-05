@@ -539,56 +539,71 @@
 
       if (!username || !token) return;
 
-      if (!$('#home-app').length) {
-        $('#content').html('<div id="navbar-container"></div><main id="home-app"></main>');
-      }
+      const app = $('#home-app');
+      if (!app.length) return;
 
-      const userRequest = request('/api/user/' + encodeURIComponent(username), {
+      const results = {
+        user: {
+          username,
+          userId: localStorage.getItem('userId') || '',
+          blurb: ''
+        },
+        avatar: null,
+        friends: [],
+        games: []
+      };
+
+      let pending = 4;
+
+      const settled = (key, value) => {
+        results[key] = value;
+        pending -= 1;
+        if (pending === 0) {
+          renderHome(results.user, results.avatar, results.friends, results.games);
+        }
+      };
+
+      $.ajax({
+        url: '/api/user/' + encodeURIComponent(username),
+        method: 'GET',
+        dataType: 'json',
+        timeout: 10000,
         headers: { Authorization: 'Bearer ' + token }
-      }).catch(() => ({
-        username,
-        userId: localStorage.getItem('userId') || '',
-        blurb: ''
-      }));
-
-      const avatarRequest = request('/api/avatar', {
-        headers: { Authorization: 'Bearer ' + token }
-      }).catch(() => null);
-
-      const friendsRequest = request('/api/friends/' + encodeURIComponent(username))
-        .catch(() => []);
-
-      const gamesRequest = request('/api/games').catch(() => []);
-
-      $.when(userRequest, avatarRequest, friendsRequest, gamesRequest)
-        .done((user, avatar, friends, games) => {
-          // $.when unwraps each single-ajax result differently; normalize it.
-          const normalize = value => {
-            if (Array.isArray(value)) return value;
-            if (value && value[0] && (typeof value[0] === 'object')) return value[0];
-            return value;
-          };
-
-          const u = normalize(user);
-          const a = normalize(avatar);
-          const f = normalize(friends) || [];
-          const g = normalize(games) || [];
-
-          renderHome(u && u.username ? u : {
-            username,
-            userId: localStorage.getItem('userId') || '',
-            blurb: ''
-          }, a, Array.isArray(f) ? f : [], Array.isArray(g) ? g : []);
+      })
+        .done(data => {
+          if (data && data.username) results.user = data;
+          settled('user', results.user);
         })
-        .fail(() => {
-          renderHome({
-            username,
-            userId: localStorage.getItem('userId') || '',
-            blurb: ''
-          }, null, [], []);
-        });
+        .fail(() => settled('user', results.user));
+
+      $.ajax({
+        url: '/api/avatar',
+        method: 'GET',
+        dataType: 'json',
+        timeout: 10000,
+        headers: { Authorization: 'Bearer ' + token }
+      })
+        .done(data => settled('avatar', data))
+        .fail(() => settled('avatar', null));
+
+      $.ajax({
+        url: '/api/friends/' + encodeURIComponent(username),
+        method: 'GET',
+        dataType: 'json',
+        timeout: 10000
+      })
+        .done(data => settled('friends', Array.isArray(data) ? data : []))
+        .fail(() => settled('friends', []));
+
+      $.ajax({
+        url: '/api/games',
+        method: 'GET',
+        dataType: 'json',
+        timeout: 10000
+      })
+        .done(data => settled('games', Array.isArray(data) ? data : []))
+        .fail(() => settled('games', []));
     });
   }
-
   init();
 })();
