@@ -9,5 +9,6 @@
       "source": "/uploads/:path*",
       "destination": "/api/index.js"
     }
-  ]
+  ],
+  "framework": "nextjs"
 }
