@@ -183,18 +183,24 @@ const userSchema = new mongoose.Schema({
   
 });
 
-userSchema.pre('save', async function (next) {
-  if (this.isNew) {
-    const counter = await mongoose
-      .model('Counter')
-      .findOneAndUpdate(
-        { _id: 'userId' },
-        { $inc: { seq: 1 } },
-        { new: true, upsert: true }
-      );
-    this.userId = counter.seq;
+userSchema.pre('validate', async function (next) {
+  if (this.isNew && this.userId == null) {
+    try {
+      const counter = await mongoose
+        .model('Counter')
+        .findOneAndUpdate(
+          { _id: 'userId' },
+          { $inc: { seq: 1 } },
+          { new: true, upsert: true }
+        );
+      this.userId = counter.seq;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  } else {
+    next();
   }
-  next();
 });
 
 userSchema.statics.resetCounter = async function () {
