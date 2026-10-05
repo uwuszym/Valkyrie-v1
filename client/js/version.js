@@ -1,1 +1,0 @@
-const VERSION = Date.now();
