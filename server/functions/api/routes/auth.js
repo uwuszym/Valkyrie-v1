@@ -385,16 +385,31 @@ router.post(
       });
     } catch (error) {
       console.error('Registration error:', error);
-      if (error.name === 'ValidationError') {
-        res
-          .status(400)
-          .json({ message: 'Invalid input data', details: error.errors });
-      } else {
-        res.status(500).json({
+
+      if (error.code === 11000) {
+        const duplicateField = Object.keys(error.keyPattern || {})[0];
+        const duplicateMessages = {
+          username: 'Username already exists',
+          email: 'Email already exists',
+        };
+        return res.status(409).json({
           message:
-            'An unexpected error occurred during registration. Please try again.',
+            duplicateMessages[duplicateField] ||
+            'An account with that information already exists',
         });
       }
+
+      if (error.name === 'ValidationError') {
+        return res.status(400).json({
+          message: 'Invalid input data',
+          details: error.errors,
+        });
+      }
+
+      return res.status(500).json({
+        message:
+          'An unexpected error occurred during registration. Please try again.',
+      });
     }
   }
 );
