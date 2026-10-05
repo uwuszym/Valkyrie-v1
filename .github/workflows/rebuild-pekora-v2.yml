@@ -1,0 +1,152 @@
+name: Pekora rebuild v2
+
+on:
+  push:
+    branches:
+      - pekora-rebuild
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: "!contains(github.event.head_commit.message, '[pekora-import]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Valkyrie
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: pekora-rebuild
+          persist-credentials: true
+
+      - name: Recreate site from Pekora frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf /tmp/pekora /tmp/valk-backend
+          git clone --depth 1 https://github.com/leokholforks/pekora-latest-src.git /tmp/pekora
+
+          mkdir -p /tmp/valk-backend
+          cp -a server /tmp/valk-backend/server
+          cp -a api /tmp/valk-backend/api
+          git show 6c7c882bbfca0ee067de977cc9c9db0d7357da91:package.json > /tmp/valk-package.json
+          git show 6c7c882bbfca0ee067de977cc9c9db0d7357da91:.env.example > /tmp/valk.env.example 2>/dev/null || true
+
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name '.github' \
+            -exec rm -rf {} +
+
+          cp -a /tmp/pekora/frontend/. .
+          rm -rf pages/api
+
+          cp -a /tmp/valk-backend/server ./server
+          mkdir -p api
+          cp -a /tmp/valk-backend/api/index.js ./api/index.js
+          [ -f /tmp/valk.env.example ] && cp -a /tmp/valk.env.example .env.example || true
+
+          node <<'NODE'
+          const fs = require('fs');
+          const frontend = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const old = JSON.parse(fs.readFileSync('/tmp/valk-package.json', 'utf8'));
+
+          frontend.name = 'valkyrie-pekora';
+          frontend.version = '1.0.0';
+          frontend.private = true;
+          frontend.engines = { node: '20.x' };
+          frontend.scripts = {
+            dev: 'next dev',
+            build: 'next build',
+            start: 'next start',
+            test: 'jest',
+            lint: 'next lint'
+          };
+          frontend.dependencies = {
+            ...(old.dependencies || {}),
+            ...(frontend.dependencies || {})
+          };
+          frontend.devDependencies = {
+            ...(old.devDependencies || {}),
+            ...(frontend.devDependencies || {})
+          };
+
+          fs.writeFileSync('package.json', JSON.stringify(frontend, null, 2) + '\n');
+          NODE
+
+          cp config.example.json config.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const cfg = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+          cfg.publicRuntimeConfig.backend.proxyEnabled = false;
+          cfg.publicRuntimeConfig.backend.baseUrl = '/api';
+          cfg.publicRuntimeConfig.backend.apiFormat = '/api/{0}{1}';
+          cfg.publicRuntimeConfig.backend.flags = {
+            ...(cfg.publicRuntimeConfig.backend.flags || {}),
+            requireLoginThroughCookie: false,
+            clientSideRenderingEnabled: true
+          };
+          fs.writeFileSync('config.json', JSON.stringify(cfg, null, 2) + '\n');
+          NODE
+
+          cat > next.config.js <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const configPath = path.join(__dirname, 'config.json');
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          module.exports = {
+            reactStrictMode: true,
+            serverRuntimeConfig: config.serverRuntimeConfig,
+            publicRuntimeConfig: config.publicRuntimeConfig,
+            async redirects() {
+              return [
+                {
+                  source: '/catalog.aspx',
+                  destination: '/catalog',
+                  permanent: true
+                },
+                {
+                  source: '/groups/:id/:name',
+                  destination: '/My/Groups.aspx?gid=:id',
+                  permanent: false
+                }
+              ];
+            },
+            webpack(nextConfig) {
+              nextConfig.plugins = nextConfig.plugins.filter(plugin => {
+                return plugin.constructor.name !== 'ReactFreshWebpackPlugin';
+              });
+              return nextConfig;
+            }
+          };
+          EOF
+
+          cat > vercel.json <<'EOF'
+          {
+            "version": 2,
+            "rewrites": [
+              {
+                "source": "/api/:path*",
+                "destination": "/api/index.js"
+              },
+              {
+                "source": "/uploads/:path*",
+                "destination": "/api/index.js"
+              }
+            ]
+          }
+          EOF
+
+          npm install --package-lock-only --ignore-scripts
+          npm install --ignore-scripts
+          npm run build
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Rebuild site from Pekora frontend [pekora-import]"
+          git push origin pekora-rebuild
