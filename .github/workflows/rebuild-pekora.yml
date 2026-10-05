@@ -1,0 +1,171 @@
+name: Rebuild frontend from Pekora
+
+on:
+  push:
+    branches:
+      - pekora-rebuild
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: "!contains(github.event.head_commit.message, '[pekora-import]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Valkyrie
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: pekora-rebuild
+          persist-credentials: true
+
+      - name: Import Pekora frontend and keep Valkyrie backend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf /tmp/pekora /tmp/valk-preserve
+          git clone --depth 1 https://github.com/leokholforks/pekora-latest-src.git /tmp/pekora
+
+          mkdir -p /tmp/valk-preserve
+          cp -a server /tmp/valk-preserve/server
+          cp -a api /tmp/valk-preserve/api
+          cp -a .env.example /tmp/valk-preserve/.env.example 2>/dev/null || true
+
+          rm -rf -- \
+            .codebuddy .github/ISSUE_TEMPLATE \
+            AssetValidationServiceV2 Roblox RCCService admin \
+            api client public server \
+            Procfile README.md deploy-do.sh deploy.sh ecosystem.config.js monitor.sh \
+            package.json package-lock.json bun.lock \
+            next.config.js config.json vercel.json
+
+          cp -a /tmp/pekora/frontend/. .
+
+          rm -rf pages/api
+
+          cp -a /tmp/valk-preserve/server ./server
+          mkdir -p api
+          cp -a /tmp/valk-preserve/api/index.js ./api/index.js
+          [ -f /tmp/valk-preserve/.env.example ] && cp -a /tmp/valk-preserve/.env.example .env.example || true
+
+          # Valkyrie branding while keeping Pekora's UI/source structure.
+          grep -rl --exclude-dir=.git --exclude='*.png' --exclude='*.jpg' --exclude='*.jpeg' --exclude='*.gif' --exclude='*.webp' --exclude='*.ico' --exclude='*.woff2' \
+            -e 'Marine' -e 'MarineModern' . | xargs -r sed -i 's/Marine/Valkyrie/g'
+          
+          # Keep Valkyrie's existing logo available to the new frontend.
+          if [ -f /tmp/valk-preserve/server/../server/../public/images/ValkLogo.png ]; then
+            mkdir -p public/img
+            cp /tmp/valk-preserve/server/../server/../public/images/ValkLogo.png public/img/valkyrie-logo.png
+          fi
+
+          cp config.example.json config.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const frontend = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const old = fs.existsSync('/tmp/valk-package.json')
+            ? JSON.parse(fs.readFileSync('/tmp/valk-package.json', 'utf8'))
+            : { dependencies: {}, devDependencies: {} };
+
+          frontend.name = 'valkyrie-pekora';
+          frontend.version = '1.0.0';
+          frontend.private = true;
+          frontend.engines = { node: '20.x' };
+          frontend.scripts = {
+            dev: 'next dev',
+            build: 'next build',
+            start: 'next start',
+            test: 'jest',
+            lint: 'next lint'
+          };
+          frontend.dependencies = {
+            ...(old.dependencies || {}),
+            ...(frontend.dependencies || {})
+          };
+          frontend.devDependencies = {
+            ...(old.devDependencies || {}),
+            ...(frontend.devDependencies || {})
+          };
+
+          fs.writeFileSync('package.json', JSON.stringify(frontend, null, 2) + '\n');
+          NODE
+
+          node <<'NODE'
+          const fs = require('fs');
+          const cfg = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+          cfg.publicRuntimeConfig.backend.proxyEnabled = false;
+          cfg.publicRuntimeConfig.backend.baseUrl = '/api';
+          cfg.publicRuntimeConfig.backend.apiFormat = '/api/{0}{1}';
+          cfg.publicRuntimeConfig.backend.flags = {
+            ...(cfg.publicRuntimeConfig.backend.flags || {}),
+            requireLoginThroughCookie: false,
+            clientSideRenderingEnabled: true
+          };
+          fs.writeFileSync('config.json', JSON.stringify(cfg, null, 2) + '\n');
+          NODE
+
+          cat > next.config.js <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const configPath = path.join(__dirname, 'config.json');
+          if (!fs.existsSync(configPath)) {
+            throw new Error('Configuration could not be found at ' + configPath);
+          }
+
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          module.exports = {
+            reactStrictMode: true,
+            serverRuntimeConfig: config.serverRuntimeConfig,
+            publicRuntimeConfig: config.publicRuntimeConfig,
+            async redirects() {
+              return [
+                {
+                  source: '/catalog.aspx',
+                  destination: '/catalog',
+                  permanent: true,
+                },
+                {
+                  source: '/groups/:id/:name',
+                  destination: '/My/Groups.aspx?gid=:id',
+                  permanent: false,
+                }
+              ];
+            },
+            webpack(nextConfig) {
+              nextConfig.plugins = nextConfig.plugins.filter(plugin => {
+                return plugin.constructor.name !== 'ReactFreshWebpackPlugin';
+              });
+              return nextConfig;
+            }
+          };
+          EOF
+
+          cat > vercel.json <<'EOF'
+          {
+            "version": 2,
+            "rewrites": [
+              {
+                "source": "/api/:path*",
+                "destination": "/api/index.js"
+              },
+              {
+                "source": "/uploads/:path*",
+                "destination": "/api/index.js"
+              }
+            ]
+          }
+          EOF
+
+          npm install --package-lock-only --ignore-scripts
+          npm install --ignore-scripts
+          npm run build
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Rebuild site from Pekora frontend [pekora-import]"
+          git push origin pekora-rebuild
